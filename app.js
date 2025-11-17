@@ -21,7 +21,8 @@
   Edge cases handled: empty subject list (totalPoints=0), legacy array-only storage, viewport resizes that reposition climber.
 */
 
-const STORAGE_KEY = 'studentProgressDemo'
+const STORAGE_KEY_PREFIX = 'studentProgress_'
+const SELECTED_CAREER_KEY = 'selectedCareer'
 
 const DEFAULT_SUBJECTS = [
   {id: 's1', name: 'Programación I', hours: 80, state: 'final'},
@@ -42,6 +43,7 @@ const STATE_WEIGHT = {
 
 let subjects = []
 let carreraNombre = null
+let selectedCareerFile = null
 const subtitleEl = document.querySelector('.subtitle')
 const defaultSubtitle = subtitleEl ? subtitleEl.textContent : ''
 
@@ -103,92 +105,89 @@ function setStatus(msg){
 }
 
 /*
- load()
- - Intenta cargar automáticamente `materias_extraidas.json` mediante fetch(). Esto solo funciona
-   si servís la carpeta por HTTP. Si el fetch falla (file:// o 404), cae a localStorage.
+ load(careerFile)
+ - Carga el archivo de carrera especificado (ej: 'materias_TecAnaSistemas151.json')
+ - Si ya existe progreso guardado en localStorage para esa carrera, lo usa
+ - Si no, carga el archivo JSON base de la carrera
  - Acepta dos formatos de JSON:
      1) Array plano: [ {id,name,hours,state,year}, ... ]  (formato antiguo)
      2) Objeto: { nombre_carrera: '...', materias: [ ... ] } (recomendado)
- - Si hay datos en localStorage y difieren del archivo cargado, pregunta antes de sobrescribir.
- - Si no encuentra nada, usa `DEFAULT_SUBJECTS`.
 */
-async function load() {
-    try {
-      const resp = await fetch('materias_extraidas.json', { cache: 'no-store' })
-      if (resp.ok) {
-        const data = await resp.json()
-        // Aceptar tanto array plano como objeto con { nombre_carrera, materias }
-        let loaded = null
-        if (Array.isArray(data)) {
-          loaded = data
-        } else if (data && Array.isArray(data.materias)) {
-          loaded = data.materias
-          if (data.nombre_carrera) setCarreraNombre(data.nombre_carrera)
-        }
-        if (loaded) {
-          const existingRaw = localStorage.getItem(STORAGE_KEY)
-          if (existingRaw) {
-            try {
-              const existing = JSON.parse(existingRaw)
-              // normalizar existing para comparar (aceptar objeto o array)
-              const existingNorm = Array.isArray(existing) ? existing : (existing && Array.isArray(existing.materias) ? existing.materias : null)
-              if (existingNorm && JSON.stringify(existingNorm) !== JSON.stringify(loaded)) {
-                const ok = confirm('Se encontraron datos guardados localmente. Al cargar el archivo externo se sobrescribirán. ¿Desea continuar?')
-                if (!ok) {
-                  subjects = existingNorm || existing
-                  setStatus('Se mantuvieron los datos locales (no se sobrescribió)')
-                  return
-                }
-              }
-            } catch (e) {
-              // parse error: proceder a sobrescribir
-            }
-          }
-          subjects = loaded
-          save()
-          setStatus('Datos cargados desde materias_extraidas.json')
-          return
-        }
-      }
-    } catch (err) {
-      // Fallamos al fetch (archivo no existe o CORS/file://). Caeremos al localStorage.
-      // Silencioso por diseño — no es un error crítico en uso local.
+async function load(careerFile = null) {
+  if (!careerFile) {
+    // Intentar cargar la última carrera seleccionada
+    careerFile = localStorage.getItem(SELECTED_CAREER_KEY)
+    if (!careerFile) {
+      subjects = []
+      setStatus('Por favor, selecciona una carrera')
+      return
     }
+  }
 
-  // Si no hay archivo local, usar localStorage
-  const raw = localStorage.getItem(STORAGE_KEY)
-  if (raw) {
+  selectedCareerFile = careerFile
+  localStorage.setItem(SELECTED_CAREER_KEY, careerFile)
+  
+  const storageKey = STORAGE_KEY_PREFIX + careerFile
+  
+  // Primero intentar cargar progreso guardado en localStorage
+  const savedProgress = localStorage.getItem(storageKey)
+  if (savedProgress) {
     try {
-      const parsed = JSON.parse(raw)
+      const parsed = JSON.parse(savedProgress)
       if (Array.isArray(parsed)) {
         subjects = parsed
       } else if (parsed && Array.isArray(parsed.materias)) {
         subjects = parsed.materias
         if (parsed.nombre_carrera) setCarreraNombre(parsed.nombre_carrera)
-      } else {
-        // unknown format: ignore and fall back
       }
-      setStatus('Datos cargados desde localStorage')
+      setStatus('Progreso cargado desde tu almacenamiento local')
       return
     } catch (e) {
-      // invalid storage, usar defaults
+      // Si hay error, cargar desde archivo
     }
   }
 
-  // Finalmente, usar los valores por defecto embebidos
+  // Si no hay progreso guardado, cargar el archivo base de la carrera
+  try {
+    const resp = await fetch(careerFile, { cache: 'no-store' })
+    if (resp.ok) {
+      const data = await resp.json()
+      let loaded = null
+      if (Array.isArray(data)) {
+        loaded = data
+      } else if (data && Array.isArray(data.materias)) {
+        loaded = data.materias
+        if (data.nombre_carrera) setCarreraNombre(data.nombre_carrera)
+      }
+      if (loaded) {
+        subjects = loaded
+        save() // Guardar en localStorage para esta carrera
+        setStatus('Carrera cargada correctamente')
+        return
+      }
+    }
+  } catch (err) {
+    setStatus('Error al cargar el archivo de carrera')
+    console.error('Error cargando carrera:', err)
+  }
+
+  // Si todo falla, usar valores por defecto
   subjects = DEFAULT_SUBJECTS
   setStatus('Usando valores por defecto')
 }
 
 function save() {
+  if (!selectedCareerFile) return
+  
   // Guardar materias junto con el nombre de la carrera (si está disponible)
   // Guardamos un objeto con dos propiedades para preservar metadatos (nombre_carrera)
-  // Esto facilita restaurar el subtítulo al recargar la página.
+  // Cada carrera tiene su propio espacio en localStorage
   const payload = {
     nombre_carrera: carreraNombre || null,
     materias: subjects
   }
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(payload))
+  const storageKey = STORAGE_KEY_PREFIX + selectedCareerFile
+  localStorage.setItem(storageKey, JSON.stringify(payload))
 }
 
 function calcTotals() {
@@ -381,6 +380,179 @@ function moveClimberToPercent(pct){
 
 // Nota: la acción de "resetear" fue eliminada (botón quitado del DOM)
 
+// Export Progress as Image
+const exportImageBtn = document.getElementById('exportImageBtn')
+if (exportImageBtn) {
+  exportImageBtn.addEventListener('click', async ()=>{
+    try {
+      await exportProgressImage()
+    } catch (err) {
+      console.error('Error al exportar imagen:', err)
+      alert('❌ Error al exportar la imagen. Por favor, intenta nuevamente.')
+    }
+  })
+}
+
+async function exportProgressImage() {
+  setStatus('Generando imagen...')
+  
+  // Get current progress
+  const {pct} = calcTotals()
+  const careerName = carreraNombre || 'Mi Carrera'
+  
+  // Clone the SVG
+  const originalSVG = document.getElementById('mountainSVG')
+  if (!originalSVG) {
+    throw new Error('SVG de montaña no encontrado')
+  }
+  
+  const svgClone = originalSVG.cloneNode(true)
+  svgClone.setAttribute('width', '600')
+  svgClone.setAttribute('height', '800')
+  
+  // Convert images to base64 if needed (for CORS issues)
+  await embedImagesAsBase64(svgClone)
+  
+  // Add progress info overlay
+  const infoGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g')
+  infoGroup.setAttribute('id', 'progressInfo')
+  
+  // Background box
+  const bgRect = document.createElementNS('http://www.w3.org/2000/svg', 'rect')
+  bgRect.setAttribute('x', '20')
+  bgRect.setAttribute('y', '20')
+  bgRect.setAttribute('width', '560')
+  bgRect.setAttribute('height', '100')
+  bgRect.setAttribute('fill', 'white')
+  bgRect.setAttribute('opacity', '0.95')
+  bgRect.setAttribute('rx', '12')
+  bgRect.setAttribute('stroke', '#2b8ae2')
+  bgRect.setAttribute('stroke-width', '2')
+  infoGroup.appendChild(bgRect)
+  
+  // Career name
+  const nameText = document.createElementNS('http://www.w3.org/2000/svg', 'text')
+  nameText.setAttribute('x', '40')
+  nameText.setAttribute('y', '55')
+  nameText.setAttribute('font-size', '20')
+  nameText.setAttribute('font-weight', '600')
+  nameText.setAttribute('fill', '#0f172a')
+  nameText.setAttribute('font-family', 'Inter, system-ui, sans-serif')
+  nameText.textContent = careerName
+  infoGroup.appendChild(nameText)
+  
+  // Progress percentage
+  const pctText = document.createElementNS('http://www.w3.org/2000/svg', 'text')
+  pctText.setAttribute('x', '40')
+  pctText.setAttribute('y', '95')
+  pctText.setAttribute('font-size', '36')
+  pctText.setAttribute('font-weight', 'bold')
+  pctText.setAttribute('fill', '#2b8ae2')
+  pctText.setAttribute('font-family', 'Inter, system-ui, sans-serif')
+  pctText.textContent = `Progreso: ${pct.toFixed(1)}%`
+  infoGroup.appendChild(pctText)
+  
+  // Date stamp
+  const dateText = document.createElementNS('http://www.w3.org/2000/svg', 'text')
+  dateText.setAttribute('x', '300')
+  dateText.setAttribute('y', '770')
+  dateText.setAttribute('font-size', '14')
+  dateText.setAttribute('fill', '#6b7280')
+  dateText.setAttribute('font-family', 'Inter, system-ui, sans-serif')
+  dateText.setAttribute('text-anchor', 'middle')
+  const now = new Date().toLocaleDateString('es-ES')
+  dateText.textContent = `Generado el ${now}`
+  infoGroup.appendChild(dateText)
+  
+  svgClone.appendChild(infoGroup)
+  
+  // Serialize SVG to string
+  const serializer = new XMLSerializer()
+  const svgString = serializer.serializeToString(svgClone)
+  
+  // Create canvas and convert to image
+  const canvas = document.createElement('canvas')
+  canvas.width = 600
+  canvas.height = 800
+  const ctx = canvas.getContext('2d')
+  
+  // Create blob from SVG string
+  const svgBlob = new Blob([svgString], {type: 'image/svg+xml;charset=utf-8'})
+  const url = URL.createObjectURL(svgBlob)
+  
+  return new Promise((resolve, reject) => {
+    const img = new Image()
+    
+    img.onload = () => {
+      // Draw white background
+      ctx.fillStyle = '#ffffff'
+      ctx.fillRect(0, 0, canvas.width, canvas.height)
+      
+      // Draw SVG
+      ctx.drawImage(img, 0, 0)
+      
+      // Convert to PNG and download
+      canvas.toBlob((blob) => {
+        if (!blob) {
+          reject(new Error('Error al crear la imagen'))
+          return
+        }
+        
+        const downloadUrl = URL.createObjectURL(blob)
+        const link = document.createElement('a')
+        const fileName = `progreso-${careerName.replace(/[^a-zA-Z0-9]/g, '-')}-${pct.toFixed(0)}pct.png`
+        link.download = fileName
+        link.href = downloadUrl
+        link.click()
+        
+        // Cleanup
+        URL.revokeObjectURL(url)
+        URL.revokeObjectURL(downloadUrl)
+        
+        setStatus(`✅ Imagen exportada: ${fileName}`)
+        resolve()
+      }, 'image/png', 1.0)
+    }
+    
+    img.onerror = () => {
+      URL.revokeObjectURL(url)
+      reject(new Error('Error al cargar el SVG'))
+    }
+    
+    img.src = url
+  })
+}
+
+async function embedImagesAsBase64(svgElement) {
+  // Find all image elements in the SVG
+  const images = svgElement.querySelectorAll('image')
+  
+  for (const img of images) {
+    const href = img.getAttribute('href') || img.getAttribute('xlink:href')
+    if (!href || href.startsWith('data:')) continue
+    
+    try {
+      // Try to load and convert to base64
+      const response = await fetch(href)
+      const blob = await response.blob()
+      const base64 = await blobToBase64(blob)
+      img.setAttribute('href', base64)
+    } catch (err) {
+      console.warn(`No se pudo convertir imagen: ${href}`, err)
+      // Continue anyway, might work if CORS allows
+    }
+  }
+}
+
+function blobToBase64(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onloadend = () => resolve(reader.result)
+    reader.onerror = reject
+    reader.readAsDataURL(blob)
+  })
+}
+
 exportBtn.addEventListener('click', ()=>{
   // Exportar incluyendo nombre de la carrera si está disponible
   const exportObj = {
@@ -413,17 +585,20 @@ if (importBtn) {
         throw new Error('Formato inválido')
       }
 
-      const existingRaw = localStorage.getItem(STORAGE_KEY)
-      if (existingRaw) {
-        try {
-          const existing = JSON.parse(existingRaw)
-          const existingNorm = Array.isArray(existing) ? existing : (existing && Array.isArray(existing.materias) ? existing.materias : null)
-          if (existingNorm && JSON.stringify(existingNorm) !== JSON.stringify(normalized)) {
-            const ok = confirm('Se detectaron datos guardados localmente. Al importar se sobrescribirán. ¿Desea continuar?')
-            if (!ok) return
+      if (selectedCareerFile) {
+        const storageKey = STORAGE_KEY_PREFIX + selectedCareerFile
+        const existingRaw = localStorage.getItem(storageKey)
+        if (existingRaw) {
+          try {
+            const existing = JSON.parse(existingRaw)
+            const existingNorm = Array.isArray(existing) ? existing : (existing && Array.isArray(existing.materias) ? existing.materias : null)
+            if (existingNorm && JSON.stringify(existingNorm) !== JSON.stringify(normalized)) {
+              const ok = confirm('Se detectaron datos guardados localmente. Al importar se sobrescribirán. ¿Desea continuar?')
+              if (!ok) return
+            }
+          } catch (e) {
+            // parse error: continuar y sobrescribir
           }
-        } catch (e) {
-          // parse error: continuar y sobrescribir
         }
       }
       subjects = normalized
@@ -449,6 +624,443 @@ if (importBtn) {
     console.warn('Elemento #importFile no encontrado en el DOM; la función de import no estará disponible.')
     importBtn.addEventListener('click', ()=> alert('Elemento de importación no disponible en esta página.'))
   }
+}
+
+// Career selector
+const careerSelector = document.getElementById('careerSelector')
+const CUSTOM_CAREERS_KEY = 'customCareers'
+let customCareers = []
+let editingCareer = null
+
+// Load custom careers from localStorage
+function loadCustomCareers() {
+  try {
+    const stored = localStorage.getItem(CUSTOM_CAREERS_KEY)
+    customCareers = stored ? JSON.parse(stored) : []
+    updateCareerSelector()
+  } catch (e) {
+    customCareers = []
+  }
+}
+
+// Save custom careers to localStorage
+function saveCustomCareers() {
+  localStorage.setItem(CUSTOM_CAREERS_KEY, JSON.stringify(customCareers))
+}
+
+// Update the career selector with custom careers
+function updateCareerSelector() {
+  if (!careerSelector) return
+  
+  const currentValue = careerSelector.value
+  
+  // Remove all custom career options (those starting with 'custom_')
+  Array.from(careerSelector.options).forEach(opt => {
+    if (opt.value.startsWith('custom_')) {
+      opt.remove()
+    }
+  })
+  
+  // Add custom careers to the selector
+  customCareers.forEach((career, index) => {
+    const opt = document.createElement('option')
+    opt.value = `custom_${index}`
+    opt.textContent = `${career.name} (Personalizada)`
+    careerSelector.appendChild(opt)
+  })
+  
+  // Restore selection if it still exists
+  if (currentValue && Array.from(careerSelector.options).some(opt => opt.value === currentValue)) {
+    careerSelector.value = currentValue
+  }
+  
+  updateCareerButtons()
+}
+
+// Update visibility of career management buttons
+function updateCareerButtons() {
+  const createBtn = document.getElementById('createCareerBtn')
+  const editBtn = document.getElementById('editCareerBtn')
+  const duplicateBtn = document.getElementById('duplicateCareerBtn')
+  const deleteBtn = document.getElementById('deleteCareerBtn')
+  
+  const selectedValue = careerSelector?.value || ''
+  const isCustom = selectedValue.startsWith('custom_')
+  const hasSelection = selectedValue !== ''
+  
+  if (editBtn) editBtn.style.display = isCustom ? 'inline-block' : 'none'
+  if (duplicateBtn) duplicateBtn.style.display = hasSelection ? 'inline-block' : 'none'
+  if (deleteBtn) deleteBtn.style.display = isCustom ? 'inline-block' : 'none'
+}
+
+if (careerSelector) {
+  loadCustomCareers()
+  
+  // Restaurar la selección previa
+  const savedCareer = localStorage.getItem(SELECTED_CAREER_KEY)
+  if (savedCareer) {
+    careerSelector.value = savedCareer
+  }
+  
+  careerSelector.addEventListener('change', async (e)=>{
+    const selectedFile = e.target.value
+    if (selectedFile.startsWith('custom_')) {
+      // Load custom career
+      const index = parseInt(selectedFile.split('_')[1])
+      const career = customCareers[index]
+      if (career) {
+        subjects = career.subjects || []
+        setCarreraNombre(career.name)
+        selectedCareerFile = selectedFile
+        localStorage.setItem(SELECTED_CAREER_KEY, selectedFile)
+        save()
+        updateAll()
+        setStatus('Carrera personalizada cargada')
+      }
+    } else if (selectedFile) {
+      await load(selectedFile)
+      updateAll()
+    } else {
+      subjects = []
+      setCarreraNombre(null)
+      updateAll()
+      setStatus('Por favor, selecciona una carrera')
+    }
+    updateCareerButtons()
+  })
+  
+  updateCareerButtons()
+}
+
+// Career Editor Modal
+const careerEditorModal = document.getElementById('careerEditorModal')
+const careerEditorOverlay = document.getElementById('careerEditorOverlay')
+const careerNameInput = document.getElementById('careerNameInput')
+const subjectsEditorList = document.getElementById('subjectsEditorList')
+const createCareerBtn = document.getElementById('createCareerBtn')
+const editCareerBtn = document.getElementById('editCareerBtn')
+const duplicateCareerBtn = document.getElementById('duplicateCareerBtn')
+const deleteCareerBtn = document.getElementById('deleteCareerBtn')
+const addSubjectBtn = document.getElementById('addSubjectBtn')
+const saveCareerBtn = document.getElementById('saveCareerBtn')
+const cancelCareerBtn = document.getElementById('cancelCareerBtn')
+
+let tempSubjects = []
+let subjectIdCounter = 0
+
+function openCareerEditor(mode = 'create', careerData = null) {
+  if (!careerEditorModal || !careerEditorOverlay) return
+  
+  editingCareer = careerData
+  tempSubjects = []
+  subjectIdCounter = 0
+  
+  const titleEl = document.getElementById('careerEditorTitle')
+  if (titleEl) {
+    titleEl.textContent = mode === 'edit' ? 'Editar Carrera Personalizada' : 
+                         mode === 'duplicate' ? 'Duplicar Carrera' : 
+                         'Crear Carrera Personalizada'
+  }
+  
+  if (careerData) {
+    careerNameInput.value = mode === 'duplicate' ? `${careerData.name} (Copia)` : careerData.name
+    tempSubjects = JSON.parse(JSON.stringify(careerData.subjects || []))
+  } else {
+    careerNameInput.value = ''
+    tempSubjects = []
+  }
+  
+  renderSubjectsEditor()
+  
+  // Hide help text when opening modal
+  const helpText = document.getElementById('careerHelpText')
+  const helpBtn = document.getElementById('careerHelpBtn')
+  if (helpText) helpText.hidden = true
+  if (helpBtn) helpBtn.classList.remove('active')
+  
+  careerEditorOverlay.hidden = false
+  careerEditorModal.hidden = false
+  careerNameInput.focus()
+}
+
+function closeCareerEditor() {
+  if (!careerEditorModal || !careerEditorOverlay) return
+  careerEditorModal.hidden = true
+  careerEditorOverlay.hidden = true
+  editingCareer = null
+  tempSubjects = []
+  
+  // Hide help text when closing
+  const helpText = document.getElementById('careerHelpText')
+  const helpBtn = document.getElementById('careerHelpBtn')
+  if (helpText) helpText.hidden = true
+  if (helpBtn) helpBtn.classList.remove('active')
+}
+
+function renderSubjectsEditor() {
+  if (!subjectsEditorList) return
+  
+  subjectsEditorList.innerHTML = ''
+  
+  if (tempSubjects.length === 0) {
+    const emptyMsg = document.createElement('p')
+    emptyMsg.className = 'empty-subjects-msg'
+    emptyMsg.textContent = 'No hay materias agregadas. Haz clic en "Agregar Materia" para comenzar.'
+    subjectsEditorList.appendChild(emptyMsg)
+    return
+  }
+  
+  tempSubjects.forEach((subject, index) => {
+    const row = document.createElement('div')
+    row.className = 'subject-editor-row'
+    
+    row.innerHTML = `
+      <input type="text" class="form-input subject-name" placeholder="Nombre de la materia" value="${subject.name || ''}" data-index="${index}" />
+      <input type="number" class="form-input subject-year" placeholder="Año" min="1" max="6" value="${subject.year || 1}" data-index="${index}" />
+      <input type="number" class="form-input subject-hours" placeholder="Horas" min="1" value="${subject.hours || 64}" data-index="${index}" />
+      <button type="button" class="btn-icon btn-delete" data-index="${index}" title="Eliminar materia">🗑️</button>
+    `
+    
+    subjectsEditorList.appendChild(row)
+  })
+  
+  // Add event listeners
+  subjectsEditorList.querySelectorAll('.subject-name').forEach(input => {
+    input.addEventListener('input', (e) => {
+      const idx = parseInt(e.target.dataset.index)
+      tempSubjects[idx].name = e.target.value
+    })
+  })
+  
+  subjectsEditorList.querySelectorAll('.subject-year').forEach(input => {
+    input.addEventListener('input', (e) => {
+      const idx = parseInt(e.target.dataset.index)
+      tempSubjects[idx].year = parseInt(e.target.value) || 1
+    })
+  })
+  
+  subjectsEditorList.querySelectorAll('.subject-hours').forEach(input => {
+    input.addEventListener('input', (e) => {
+      const idx = parseInt(e.target.dataset.index)
+      tempSubjects[idx].hours = parseInt(e.target.value) || 64
+    })
+  })
+  
+  subjectsEditorList.querySelectorAll('.btn-delete').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      const idx = parseInt(e.target.dataset.index)
+      tempSubjects.splice(idx, 1)
+      renderSubjectsEditor()
+    })
+  })
+}
+
+function addNewSubject() {
+  tempSubjects.push({
+    id: `custom_s${subjectIdCounter++}`,
+    name: '',
+    year: 1,
+    hours: 64,
+    state: 'no'
+  })
+  renderSubjectsEditor()
+  
+  // Focus on the new subject name input
+  setTimeout(() => {
+    const inputs = subjectsEditorList.querySelectorAll('.subject-name')
+    if (inputs.length > 0) {
+      inputs[inputs.length - 1].focus()
+    }
+  }, 50)
+}
+
+function saveCareer() {
+  const name = careerNameInput.value.trim()
+  
+  if (!name) {
+    alert('⚠️ Por favor, ingresa un nombre para la carrera.')
+    careerNameInput.focus()
+    return
+  }
+  
+  if (tempSubjects.length === 0) {
+    alert('⚠️ Por favor, agrega al menos una materia.\n\nHaz clic en "+ Agregar Materia" para comenzar.')
+    return
+  }
+  
+  // Validate subjects
+  for (let i = 0; i < tempSubjects.length; i++) {
+    if (!tempSubjects[i].name || !tempSubjects[i].name.trim()) {
+      alert(`⚠️ Por favor, completa el nombre de la materia #${i + 1}.`)
+      // Focus on the empty input
+      const inputs = document.querySelectorAll('.subject-name')
+      if (inputs[i]) inputs[i].focus()
+      return
+    }
+    if (!tempSubjects[i].hours || tempSubjects[i].hours < 1) {
+      alert(`⚠️ Por favor, ingresa una carga horaria válida para "${tempSubjects[i].name}".\n\nLas horas deben ser mayor a 0.`)
+      return
+    }
+    if (!tempSubjects[i].year || tempSubjects[i].year < 1) {
+      alert(`⚠️ Por favor, ingresa un año válido para "${tempSubjects[i].name}".\n\nEl año debe ser mayor a 0.`)
+      return
+    }
+  }
+  
+  const careerData = {
+    name: name,
+    subjects: tempSubjects.map(s => ({
+      ...s,
+      name: s.name.trim()
+    }))
+  }
+  
+  if (editingCareer && editingCareer.mode === 'edit') {
+    // Update existing career
+    const index = editingCareer.index
+    customCareers[index] = careerData
+  } else {
+    // Add new career (create or duplicate)
+    customCareers.push(careerData)
+  }
+  
+  saveCustomCareers()
+  updateCareerSelector()
+  
+  // Select the newly created/edited career
+  const careerIndex = editingCareer && editingCareer.mode === 'edit' ? editingCareer.index : customCareers.length - 1
+  const careerKey = `custom_${careerIndex}`
+  careerSelector.value = careerKey
+  
+  // Load it
+  subjects = JSON.parse(JSON.stringify(careerData.subjects))
+  setCarreraNombre(careerData.name)
+  selectedCareerFile = careerKey
+  localStorage.setItem(SELECTED_CAREER_KEY, careerKey)
+  save()
+  updateAll()
+  updateCareerButtons()
+  
+  closeCareerEditor()
+  
+  // Show success message
+  const action = editingCareer && editingCareer.mode === 'edit' ? 'actualizada' : 'creada'
+  setStatus(`✅ Carrera ${action} correctamente: "${careerData.name}"`)
+}
+
+function deleteCareer() {
+  const selectedValue = careerSelector?.value || ''
+  if (!selectedValue.startsWith('custom_')) return
+  
+  const careerIndex = parseInt(selectedValue.split('_')[1])
+  const careerName = customCareers[careerIndex]?.name || 'esta carrera'
+  
+  if (!confirm(`🗑️ ¿Estás seguro de que deseas eliminar "${careerName}"?\n\nEsta acción no se puede deshacer y se perderá todo tu progreso en esta carrera.`)) {
+    return
+  }
+  
+  customCareers.splice(careerIndex, 1)
+  saveCustomCareers()
+  updateCareerSelector()
+  
+  // Clear selection
+  careerSelector.value = ''
+  subjects = []
+  setCarreraNombre(null)
+  selectedCareerFile = null
+  localStorage.removeItem(SELECTED_CAREER_KEY)
+  updateAll()
+  updateCareerButtons()
+  setStatus('Carrera eliminada')
+}
+
+async function duplicateCurrentCareer() {
+  const selectedValue = careerSelector?.value || ''
+  if (!selectedValue) return
+  
+  let careerData = null
+  
+  if (selectedValue.startsWith('custom_')) {
+    // Duplicate custom career
+    const index = parseInt(selectedValue.split('_')[1])
+    careerData = {
+      name: customCareers[index].name,
+      subjects: JSON.parse(JSON.stringify(customCareers[index].subjects))
+    }
+  } else {
+    // Duplicate built-in career
+    try {
+      const resp = await fetch(selectedValue, { cache: 'no-store' })
+      if (resp.ok) {
+        const data = await resp.json()
+        careerData = {
+          name: data.nombre_carrera || carreraNombre || 'Carrera',
+          subjects: data.materias || data || []
+        }
+      }
+    } catch (err) {
+      alert('Error al cargar la carrera para duplicar.')
+      return
+    }
+  }
+  
+  if (careerData) {
+    openCareerEditor('duplicate', careerData)
+  }
+}
+
+// Event listeners for career management
+if (createCareerBtn) {
+  createCareerBtn.addEventListener('click', () => openCareerEditor('create'))
+}
+
+if (editCareerBtn) {
+  editCareerBtn.addEventListener('click', () => {
+    const selectedValue = careerSelector?.value || ''
+    if (selectedValue.startsWith('custom_')) {
+      const index = parseInt(selectedValue.split('_')[1])
+      const careerData = {
+        name: customCareers[index].name,
+        subjects: JSON.parse(JSON.stringify(customCareers[index].subjects))
+      }
+      openCareerEditor('edit', { ...careerData, mode: 'edit', index })
+    }
+  })
+}
+
+if (duplicateCareerBtn) {
+  duplicateCareerBtn.addEventListener('click', duplicateCurrentCareer)
+}
+
+if (deleteCareerBtn) {
+  deleteCareerBtn.addEventListener('click', deleteCareer)
+}
+
+if (addSubjectBtn) {
+  addSubjectBtn.addEventListener('click', addNewSubject)
+}
+
+if (saveCareerBtn) {
+  saveCareerBtn.addEventListener('click', saveCareer)
+}
+
+if (cancelCareerBtn) {
+  cancelCareerBtn.addEventListener('click', closeCareerEditor)
+}
+
+if (careerEditorOverlay) {
+  careerEditorOverlay.addEventListener('click', closeCareerEditor)
+}
+
+// Career Editor Help Button
+const careerHelpBtn = document.getElementById('careerHelpBtn')
+const careerHelpText = document.getElementById('careerHelpText')
+
+if (careerHelpBtn && careerHelpText) {
+  careerHelpBtn.addEventListener('click', () => {
+    careerHelpText.hidden = !careerHelpText.hidden
+    careerHelpBtn.classList.toggle('active')
+  })
 }
 
 // inic
@@ -490,6 +1102,17 @@ if (closeHelp){
 if (helpOverlay){
   helpOverlay.addEventListener('click', ()=> closeHelpModal())
 }
+
+// Handle Escape key for both modals
 window.addEventListener('keydown', (e)=>{
-  if (e.key === 'Escape') closeHelpModal()
+  if (e.key === 'Escape') {
+    // Close career editor if open
+    if (careerEditorModal && !careerEditorModal.hidden) {
+      closeCareerEditor()
+    }
+    // Close help modal if open
+    else if (helpModal && !helpModal.hidden) {
+      closeHelpModal()
+    }
+  }
 })

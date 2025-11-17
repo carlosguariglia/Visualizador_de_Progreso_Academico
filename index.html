@@ -27,7 +27,7 @@
             <rect width="100%" height="100%" fill="url(#g1)" />
 
             <!-- Background mountain image provided by user (place assets/mountain.png) -->
-            <image id="bgMountain" href="assets/montana2.png" x="0" y="0" width="600" height="800" preserveAspectRatio="xMidYMid slice" />
+            <image id="bgMountain" href="assets/montana.png" x="0" y="0" width="600" height="800" preserveAspectRatio="xMidYMid slice" />
 
             <!-- Optional vector fallback/shapes retained for smaller devices (removed fill/shape so background image is fully visible) -->
             <rect x="0" y="730" width="100%" height="70" fill="#cfe6ff"/>
@@ -44,7 +44,7 @@
             <!-- climber group: now uses a raster image provided by the user (place assets/climber.png) -->
             <g id="climberG" class="climber-g" transform="translate(120,700)" aria-hidden="false">
               <!-- Image anchored with its feet roughly at y=0 of the group. Tune width/height/x/y as needed -->
-              <image id="climberImg" href="assets/estudiante3.png" x="-28" y="-72" width="56" height="72" preserveAspectRatio="xMidYMax" />
+              <image id="climberImg" href="assets/estudiante.png" x="-28" y="-72" width="56" height="72" preserveAspectRatio="xMidYMax" />
             </g>
           </svg>
           <div id="milestones" class="milestones" aria-hidden="true"></div>
@@ -71,6 +71,20 @@
       </section>
 
       <section class="controls">
+        <div class="career-selector-wrapper">
+          <label for="careerSelector">Selecciona tu carrera:</label>
+          <select id="careerSelector" class="career-selector">
+            <option value="">-- Elige una carrera --</option>
+            <option value="materias_TecAnaSistemas151.json">Tecnicatura Analista de Sistemas - ISFT 151</option>
+            <option value="materias_TecSupDesaSoftIDRA.json">Tecnicatura Superior en Desarrollo de Software - IDRA</option>
+          </select>
+          <div class="career-actions">
+            <button id="createCareerBtn" class="btn-secondary" title="Crear carrera personalizada">+ Nueva Carrera</button>
+            <button id="editCareerBtn" class="btn-secondary" title="Editar carrera actual" style="display:none">✏️ Editar</button>
+            <button id="duplicateCareerBtn" class="btn-secondary" title="Duplicar carrera actual" style="display:none">📋 Duplicar</button>
+            <button id="deleteCareerBtn" class="btn-danger" title="Eliminar carrera personalizada" style="display:none">🗑️ Eliminar</button>
+          </div>
+        </div>
         <h2>Materias <button id="helpBtn" class="help-btn" aria-haspopup="dialog" aria-controls="helpModal" title="Ayuda">?</button></h2>
         <div id="yearTabs" class="year-tabs" role="tablist" aria-label="Años"></div>
         <div id="subjectsContainer">
@@ -78,6 +92,7 @@
         </div>
 
         <div class="buttons">
+          <button id="exportImageBtn" class="btn-image" title="Descargar imagen del progreso">📷 Exportar Imagen</button>
           <button id="exportBtn">Exportar JSON</button>
           <input type="file" id="importFile" accept="application/json" style="display:none">
           <button id="importBtn">Importar JSON</button>
@@ -100,6 +115,54 @@
           <li><strong>Final Aprobado</strong> y <strong>Equivalencia</strong> 100%</li>
         </ul>
         <div class="help-actions"><button id="closeHelp" class="button">Cerrar</button></div>
+      </div>
+    </div>
+
+    <!-- Career Editor Modal -->
+    <div id="careerEditorOverlay" class="help-overlay" hidden></div>
+    <div id="careerEditorModal" class="career-editor-modal" role="dialog" aria-modal="true" aria-labelledby="careerEditorTitle" hidden>
+      <div class="career-editor-content">
+        <div class="modal-header">
+          <h3 id="careerEditorTitle">Crear/Editar Carrera Personalizada</h3>
+          <button id="careerHelpBtn" class="help-btn" type="button" title="Ayuda">?</button>
+        </div>
+        
+        <div id="careerHelpText" class="career-help-text" hidden>
+          <div class="help-box">
+            <h4>📚 Cómo usar esta herramienta:</h4>
+            <ul>
+              <li><strong>Nombre de la carrera:</strong> Ingresa el nombre completo de tu carrera.</li>
+              <li><strong>Agregar materias:</strong> Haz clic en "+ Agregar Materia" para cada materia de tu plan de estudios.</li>
+              <li><strong>Nombre:</strong> Escribe el nombre completo de la materia.</li>
+              <li><strong>Año:</strong> Indica a qué año corresponde (1, 2, 3, etc.).</li>
+              <li><strong>Horas:</strong> Ingresa la carga horaria total de la materia.</li>
+              <li><strong>Eliminar:</strong> Usa el botón 🗑️ para quitar una materia.</li>
+              <li><strong>Guardar:</strong> Cuando termines, haz clic en "Guardar Carrera".</li>
+            </ul>
+            <p class="help-note">💡 <strong>Consejo:</strong> Puedes duplicar una carrera existente como plantilla y modificarla según tus necesidades.</p>
+          </div>
+        </div>
+        
+        <div class="form-group">
+          <label for="careerNameInput">Nombre de la carrera: <span class="required">*</span></label>
+          <input type="text" id="careerNameInput" class="form-input" placeholder="Ej: Licenciatura en Sistemas de Información" required />
+        </div>
+
+        <div class="subjects-editor">
+          <div class="subjects-header">
+            <h4>Materias</h4>
+            <button id="addSubjectBtn" class="btn-add" type="button">+ Agregar Materia</button>
+          </div>
+          
+          <div id="subjectsEditorList" class="subjects-editor-list">
+            <!-- Las materias se agregan dinámicamente aquí -->
+          </div>
+        </div>
+
+        <div class="career-editor-actions">
+          <button id="saveCareerBtn" class="btn-primary">Guardar Carrera</button>
+          <button id="cancelCareerBtn" class="btn-secondary">Cancelar</button>
+        </div>
       </div>
     </div>
 
