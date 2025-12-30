@@ -228,7 +228,8 @@ Genera una imagen PNG profesional de tu progreso académico:
 
 ## Contacto
 
-Si querés que implemente alguna mejora (canvas confetti, selector de carrera persistente, tests), decímelo y lo hago.
+carlosguariglia@gmail.com
+
 
 ## Licencia
 
